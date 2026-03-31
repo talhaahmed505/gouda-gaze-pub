@@ -1,7 +1,9 @@
 api:
   listen: ":1984"
-  origin: "*"  # This allows your Flask app on port 1122 to 'borrow' the script
+  origin: "*"
 
 streams:
-  # Using MJPEG input is usually the most stable for USB webcams on Pi
-  cam: ffmpeg:device?video=/dev/video0&input_format=mjpeg&video_size=1280x720#video=h264
+  # Amcrest RTSP stream - go2rtc connects directly, no ffmpeg needed on the Pi.
+  # Main stream (1080p/4MP): subtype=0
+  # Sub stream (lower res, less bandwidth): subtype=1
+  cam: rtsp://${CAM_USER}:${CAM_PASS}@${CAM_IP}:554/cam/realmonitor?channel=1&subtype=0
