@@ -10,46 +10,52 @@
     <div id="app-container">
         <h1>Gouda Gaze</h1>
 
-        <div id="video-viewport">
-            <iframe
-                id="cam-feed"
-                src="http://{{ pi_ip }}:1984/webrtc.html?src=cam&mode=webrtc"
-                scrolling="no"
-                allowfullscreen>
-            </iframe>
-        </div>
+        <div id="main-layout">
 
-        <!-- Zoom slider -->
-        <div class="zoom-bar">
-            <span class="zoom-label">1x</span>
-            <input
-                type="range"
-                id="zoom-slider"
-                min="100" max="400" step="10" value="100"
-                aria-label="Zoom">
-            <span class="zoom-label" id="zoom-value">1.0x</span>
-        </div>
+            <!-- Left: video + zoom -->
+            <div id="video-col">
+                <div id="video-viewport">
+                    <iframe
+                        id="cam-feed"
+                        src="http://{{ pi_ip }}:1984/webrtc.html?src=cam&mode=webrtc"
+                        scrolling="no"
+                        allowfullscreen>
+                    </iframe>
+                </div>
 
-        <!-- D-pad -->
-        <div class="control-panel">
-            <div class="d-pad-grid">
-                <button class="control-btn" style="grid-area: up"    onclick="sendMove('up')">&#9650;</button>
-                <button class="control-btn" style="grid-area: left"  onclick="sendMove('left')">&#9664;</button>
-                <button class="control-btn" style="grid-area: right" onclick="sendMove('right')">&#9654;</button>
-                <button class="control-btn" style="grid-area: down"  onclick="sendMove('down')">&#9660;</button>
+                <div class="zoom-bar">
+                    <span class="zoom-label">1x</span>
+                    <input
+                        type="range"
+                        id="zoom-slider"
+                        min="100" max="400" step="10" value="100"
+                        aria-label="Zoom">
+                    <span class="zoom-label" id="zoom-value">1.0x</span>
+                </div>
             </div>
+
+            <!-- Right: d-pad with home in center -->
+            <div class="control-panel">
+                <div class="d-pad-grid">
+                    <button class="control-btn" style="grid-area: up"    onclick="sendMove('up')">&#9650;</button>
+                    <button class="control-btn" style="grid-area: left"  onclick="sendMove('left')">&#9664;</button>
+                    <button class="control-btn home-btn" style="grid-area: center" onclick="sendHome()">&#8962;</button>
+                    <button class="control-btn" style="grid-area: right" onclick="sendMove('right')">&#9654;</button>
+                    <button class="control-btn" style="grid-area: down"  onclick="sendMove('down')">&#9660;</button>
+                </div>
+            </div>
+
         </div>
     </div>
 
     <script>
-        const slider   = document.getElementById('zoom-slider');
-        const feed     = document.getElementById('cam-feed');
+        const slider    = document.getElementById('zoom-slider');
+        const feed      = document.getElementById('cam-feed');
         const zoomLabel = document.getElementById('zoom-value');
 
         slider.addEventListener('input', () => {
             const scale = slider.value / 100;
             feed.style.transform = `scale(${scale})`;
-            feed.style.transformOrigin = 'center center';
             zoomLabel.textContent = `${scale.toFixed(1)}x`;
         });
 
@@ -57,6 +63,19 @@
             fetch('/api/move/' + dir)
                 .then(res => res.json())
                 .catch(err => console.error("Error:", err));
+        }
+
+        function sendHome() {
+            // Reset digital zoom immediately so UI feels instant
+            slider.value = 100;
+            feed.style.transform = 'scale(1)';
+            zoomLabel.textContent = '1.0x';
+
+            // Tell the backend to recall the camera's home preset
+            fetch('/api/home')
+                .then(res => res.json())
+                .then(data => console.log("Home:", data))
+                .catch(err => console.error("Home error:", err));
         }
     </script>
 </body>

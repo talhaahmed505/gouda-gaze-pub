@@ -38,7 +38,26 @@ h1 {
     opacity: 0.7;
 }
 
-/* Video viewport — clips the scaled iframe so it never bleeds outside */
+/* ── Main layout: video left, controls right ───────────── */
+
+#main-layout {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 24px;
+}
+
+#video-col {
+    flex: 1;
+    min-width: 0;   /* prevents flex children from overflowing */
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+/* ── Video ─────────────────────────────────────────────── */
+
 #video-viewport {
     width: 100%;
     max-height: 75vh;
@@ -47,7 +66,7 @@ h1 {
     background: #000;
     border: 1px solid rgba(212, 170, 125, 0.25);
     border-radius: 4px;
-    overflow: hidden;   /* <-- this is what makes the crop work */
+    overflow: hidden;
     position: relative;
 }
 
@@ -58,7 +77,6 @@ iframe {
     height: 100%;
     border: none;
     display: block;
-    /* Scale animates smoothly */
     transition: transform 0.15s ease;
     transform-origin: center center;
 }
@@ -66,9 +84,7 @@ iframe {
 /* ── Zoom bar ──────────────────────────────────────────── */
 
 .zoom-bar {
-    margin-top: 16px;
-    width: 100%;
-    max-width: min(100%, calc(75vh * 16 / 9));
+    margin-top: 12px;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -82,7 +98,6 @@ iframe {
     user-select: none;
 }
 
-/* Slider track & thumb styled to match accent color */
 input[type="range"] {
     -webkit-appearance: none;
     appearance: none;
@@ -122,8 +137,7 @@ input[type="range"]:active::-webkit-slider-thumb {
 /* ── Controls ──────────────────────────────────────────── */
 
 .control-panel {
-    margin-top: 24px;
-    width: 100%;
+    flex-shrink: 0;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -132,9 +146,9 @@ input[type="range"]:active::-webkit-slider-thumb {
 .d-pad-grid {
     display: grid;
     grid-template-areas:
-        ".    up    ."
-        "left .     right"
-        ".    down  .";
+        ".    up     ."
+        "left center right"
+        ".    down   .";
     grid-template-columns: 56px 56px 56px;
     grid-template-rows:    56px 56px 56px;
     gap: 8px;
@@ -168,4 +182,27 @@ input[type="range"]:active::-webkit-slider-thumb {
     background-color: var(--accent-color);
     color: var(--text-on-accent);
     transform: scale(0.91);
+}
+
+/* Home button — slightly distinct so it reads as a different action */
+.home-btn {
+    font-size: 1.3rem;
+    border-style: dashed;
+    opacity: 0.8;
+}
+
+.home-btn:hover {
+    opacity: 1;
+}
+
+/* ── Mobile: stack vertically ──────────────────────────── */
+
+@media (max-width: 600px) {
+    #main-layout {
+        flex-direction: column;
+    }
+
+    .control-panel {
+        margin-top: 8px;
+    }
 }

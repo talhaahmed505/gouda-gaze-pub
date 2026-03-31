@@ -7,10 +7,10 @@ from flask import Flask, render_template, jsonify
 app = Flask(__name__)
 
 # --- Amcrest camera config from environment ---
-CAM_IP       = os.getenv("CAM_IP")
-CAM_USER     = os.getenv("CAM_USER")
-CAM_PASS     = os.getenv("CAM_PASS")
-CAM_CHANNEL  = os.getenv("CAM_CHANNEL")   # 0 = first channel
+CAM_IP       = os.environ["CAM_IP"]
+CAM_USER     = os.environ["CAM_USER"]
+CAM_PASS     = os.environ["CAM_PASS"]
+CAM_CHANNEL  = os.environ["CAM_CHANNEL"]
 PTZ_SPEED    = int(os.environ["PTZ_SPEED"])
 PTZ_DURATION = float(os.environ["PTZ_DURATION"])
 
@@ -42,9 +42,27 @@ def ptz_command(action: str, code: str) -> bool:
         return False
 
 
+def ptz_preset(preset_id: int = 1) -> bool:
+    """
+    Tell the camera to move to a saved preset position.
+    preset_id 1 = home (you set this once in the camera's web UI).
+    """
+    url = (
+        f"http://{CAM_IP}/cgi-bin/ptz.cgi"
+        f"?action=start&channel={CAM_CHANNEL}"
+        f"&code=GotoPreset&arg1=0&arg2={preset_id}&arg3=0"
+    )
+    try:
+        resp = requests.get(url, auth=HTTPDigestAuth(CAM_USER, CAM_PASS), timeout=3)
+        return resp.status_code == 200
+    except requests.RequestException as e:
+        print(f"PTZ preset error: {e}")
+        return False
+
+
 @app.route('/')
 def index():
-    pi_ip = os.getenv("PI_IP_TS", "localhost")
+    pi_ip = os.environ["PI_IP_TS"]
     return render_template('index.html', pi_ip=pi_ip)
 
 
@@ -57,17 +75,25 @@ def move_camera(direction: str):
 
     code = DIRECTION_MAP[direction]
 
-    # Start moving
     ok = ptz_command("start", code)
     if not ok:
         return jsonify({"status": "error", "message": "Camera command failed"}), 502
 
-    # Hold for the configured duration then stop
     time.sleep(PTZ_DURATION)
     ptz_command("stop", code)
 
     print(f"PTZ: moved {direction} for {PTZ_DURATION}s")
     return jsonify({"status": "success", "direction": direction})
+
+
+@app.route('/api/home')
+def home_camera():
+    """Return camera to preset 1 (home). Digital zoom is reset by the frontend."""
+    ok = ptz_preset(1)
+    if not ok:
+        return jsonify({"status": "error", "message": "Home preset failed"}), 502
+    print("PTZ: homed to preset 1")
+    return jsonify({"status": "success", "action": "home"})
 
 
 if __name__ == "__main__":
