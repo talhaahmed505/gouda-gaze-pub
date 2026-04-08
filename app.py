@@ -4,7 +4,7 @@ import threading
 import requests
 from requests.auth import HTTPDigestAuth
 from flask import Flask, render_template, jsonify, send_file
-from logging_config import get_loggers
+from logger_config import get_loggers
 
 app = Flask(__name__)
 
