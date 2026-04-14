@@ -1,0 +1,32 @@
+FROM python:3.11-slim
+
+# Install system dependencies for Chromium
+RUN apt-get update && apt-get install -y \
+    wget \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /browser-agent
+
+COPY requirements.browser.txt .
+RUN pip install --no-cache-dir -r requirements.browser.txt
+
+# Install Chromium browser via Playwright
+RUN playwright install chromium
+
+COPY browser_agent.py .
+
+CMD ["python", "browser_agent.py"]

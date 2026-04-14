@@ -1,21 +1,22 @@
 services:
-  # Your Python UI & Control Logic
+  # Python UI & Control Logic
   gg:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: gouda-gaze
     restart: unless-stopped
+    network_mode: host
     volumes:
       - .:/gouda-gaze
-      - ./logs:/gouda-gaze/logs  # Persist logs on host
-    network_mode: host
     environment:
       - PI_IP_TS=${PI_IP_TS}
       - CAM_IP=${CAM_IP}
       - CAM_USER=${CAM_USER}
       - CAM_PASS=${CAM_PASS}
-      - CAM_CHANNEL=${CAM_CHANNEL}
-      - PTZ_SPEED=${PTZ_SPEED}
-      - PTZ_DURATION=${PTZ_DURATION}
+      - CAM_CHANNEL=${CAM_CHANNEL:-0}
+      - PTZ_SPEED=${PTZ_SPEED:-3}
+      - BROWSER_AGENT_URL=http://localhost:1123
 
   # Real-Time Video Engine (WebRTC)
   streamer:
@@ -29,3 +30,18 @@ services:
       - CAM_PASS=${CAM_PASS}
     volumes:
       - ./go2rtc.yaml:/config/go2rtc.yaml
+
+  # Browser automation agent for camera web UI features
+  browser:
+    build:
+      context: .
+      dockerfile: Dockerfile.browser
+    container_name: gouda-browser
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - CAM_IP=${CAM_IP}
+      - CAM_USER=${CAM_USER}
+      - CAM_PASS=${CAM_PASS}
+    # Shared memory needed for Chromium
+    shm_size: '256mb'
