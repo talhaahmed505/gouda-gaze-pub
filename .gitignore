@@ -1,5 +1,5 @@
 .env
-test_shot.jpg
 static/hls/
 __pycache__/
 logs/*
+snapshots/*
