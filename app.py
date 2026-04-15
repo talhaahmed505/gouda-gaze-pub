@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 import hashlib
 import threading
+from datetime import datetime
+from pathlib import Path
 import requests
 from requests.auth import HTTPDigestAuth
-from flask import Flask, render_template, jsonify, send_file, request
+from flask import Flask, render_template, jsonify, send_file, send_from_directory, request, abort
 from logger_config import get_loggers
 
 app = Flask(__name__)
@@ -20,6 +22,14 @@ PTZ_SPEED   = int(os.environ["PTZ_SPEED"])
 
 RPC2_URL       = f"http://{CAM_IP}/RPC2"
 RPC2_LOGIN_URL = f"http://{CAM_IP}/RPC2_Login"
+
+# --- Snapshot storage ---
+# NAS HOOK: Replace SNAPSHOT_DIR with a NAS mount path when network storage is added.
+# e.g. SNAPSHOT_DIR = Path(os.environ.get("NAS_SNAPSHOT_PATH", "./snapshots"))
+# For SMB/NFS mounts, ensure the mount is present before the app starts.
+# For S3/object storage, swap save_snapshot() to use boto3 instead of Path.write_bytes().
+SNAPSHOT_DIR = Path("./snapshots")
+SNAPSHOT_DIR.mkdir(exist_ok=True)
 
 # --- Privacy state ---
 # ACL HOOK: Replace with per-user lookup when ACL is implemented.
@@ -37,11 +47,10 @@ DIRECTION_MAP = {
     "right": "Right",
 }
 
-# Valid stream setting values — used for server-side validation
-VALID_RESOLUTIONS    = ["2560x1440", "1920x1080", "1280x720", "640x480"]
-VALID_FPS            = [5, 10, 15, 20, 25, 30]
-VALID_BITRATE_CTRL   = ["CBR", "VBR"]
-BITRATE_RANGE        = (512, 8192)  # Kbps
+VALID_RESOLUTIONS  = ["2560x1440", "1920x1080", "1280x720", "640x480"]
+VALID_FPS          = [5, 10, 15, 20, 25, 30]
+VALID_BITRATE_CTRL = ["CBR", "VBR"]
+BITRATE_RANGE      = (512, 8192)
 
 
 # ── RPC2 auth ─────────────────────────────────────────────
@@ -69,7 +78,7 @@ def _rpc2_login() -> str | None:
         if not r1.text.strip():
             app_log.error("RPC2 login step1: empty response")
             return None
-        d1 = r1.json()
+        d1      = r1.json()
         p       = d1.get("params", {})
         realm   = p.get("realm", "")
         random  = p.get("random", "")
@@ -192,13 +201,50 @@ def _sync_privacy_from_camera():
 _sync_privacy_from_camera()
 
 
+# ── Snapshot storage ──────────────────────────────────────
+
+def save_snapshot(jpeg_bytes: bytes, filename: str) -> Path:
+    """
+    Persist a snapshot to storage and return its path.
+
+    NAS HOOK: This is the single function to modify when adding network storage.
+    Current: writes to local SNAPSHOT_DIR.
+    Future options:
+      - NFS/SMB mount: change SNAPSHOT_DIR to the mount point path
+      - S3: replace Path.write_bytes() with boto3 put_object()
+      - NAS API: POST jpeg_bytes to NAS endpoint
+    """
+    dest = SNAPSHOT_DIR / filename
+    dest.write_bytes(jpeg_bytes)
+    app_log.info(f"Snapshot saved: {filename} ({len(jpeg_bytes)} bytes)")
+    return dest
+
+
+def list_snapshots() -> list[dict]:
+    """
+    Return metadata for all saved snapshots, newest first.
+
+    NAS HOOK: Replace directory scan with NAS API listing or S3 list_objects()
+    when network storage is added. Response shape should stay the same so the
+    gallery frontend doesn't need to change.
+
+    Future: add pagination support by accepting offset/limit params.
+    """
+    snapshots = []
+    for f in sorted(SNAPSHOT_DIR.glob("*.jpg"), reverse=True):
+        stat = f.stat()
+        snapshots.append({
+            "filename":  f.name,
+            "timestamp": f.stem.replace("_", " ", 1).replace("-", "/", 2),
+            "size_kb":   round(stat.st_size / 1024, 1),
+            "url":       f"/snapshots/{f.name}",
+        })
+    return snapshots
+
+
 # ── Stream settings (CGI) ─────────────────────────────────
 
 def _parse_encode_response(text: str) -> dict:
-    """
-    Parse the key=value response from configManager getConfig Encode
-    into a flat dict of just the MainFormat[0].Video fields.
-    """
     result = {}
     prefix = "table.Encode[0].MainFormat[0].Video."
     for line in text.splitlines():
@@ -209,7 +255,6 @@ def _parse_encode_response(text: str) -> dict:
 
 
 def get_stream_settings() -> dict | None:
-    """Fetch current main stream encode settings from the camera."""
     url = f"http://{CAM_IP}/cgi-bin/configManager.cgi?action=getConfig&name=Encode"
     try:
         resp = requests.get(url, auth=HTTPDigestAuth(CAM_USER, CAM_PASS), timeout=5)
@@ -218,10 +263,10 @@ def get_stream_settings() -> dict | None:
             return None
         parsed = _parse_encode_response(resp.text)
         return {
-            "resolution":     parsed.get("resolution", ""),
-            "fps":            int(parsed.get("FPS", 15)),
-            "bitrate":        int(parsed.get("BitRate", 2048)),
-            "bitrate_ctrl":   parsed.get("BitRateControl", "VBR"),
+            "resolution":   parsed.get("resolution", ""),
+            "fps":          int(parsed.get("FPS", 15)),
+            "bitrate":      int(parsed.get("BitRate", 2048)),
+            "bitrate_ctrl": parsed.get("BitRateControl", "VBR"),
         }
     except (requests.RequestException, ValueError) as e:
         app_log.error(f"get_stream_settings error: {e}")
@@ -229,16 +274,11 @@ def get_stream_settings() -> dict | None:
 
 
 def set_stream_settings(resolution: str, fps: int, bitrate: int, bitrate_ctrl: str) -> bool:
-    """
-    Push updated main stream encode settings to the camera.
-    Also updates Width/Height to match the resolution string.
-    """
     try:
         w, h = resolution.split("x")
     except ValueError:
         app_log.error(f"Invalid resolution format: {resolution}")
         return False
-
     params = (
         f"Encode[0].MainFormat[0].Video.resolution={resolution}"
         f"&Encode[0].MainFormat[0].Video.Width={w}"
@@ -310,10 +350,67 @@ def index():
     return render_template('index.html', pi_ip=pi_ip, privacy=is_privacy_on())
 
 
+@app.route('/gallery')
+def gallery():
+    return render_template('gallery.html')
+
+
 @app.route('/privacy-image')
 def privacy_image():
     return send_file('./privacy.png', mimetype='image/png')
 
+
+@app.route('/snapshots/<filename>')
+def serve_snapshot(filename: str):
+    """Serve an individual snapshot file."""
+    # Basic safety — only allow simple filenames, no path traversal
+    if '/' in filename or '..' in filename:
+        abort(400)
+    return send_from_directory(SNAPSHOT_DIR, filename, mimetype='image/jpeg')
+
+
+# ── Snapshot API ──────────────────────────────────────────
+
+@app.route('/api/snapshot', methods=['POST'])
+def take_snapshot():
+    if is_privacy_on():
+        return jsonify({"status": "error", "message": "Privacy mode is active"}), 403
+
+    url = f"http://{CAM_IP}/cgi-bin/snapshot.cgi?channel=1&type=0"
+    try:
+        resp = requests.get(url, auth=HTTPDigestAuth(CAM_USER, CAM_PASS), timeout=10)
+        if resp.status_code != 200 or not resp.content:
+            app_log.error(f"Snapshot failed: {resp.status_code}")
+            return jsonify({"status": "error", "message": "Camera snapshot failed"}), 502
+    except requests.RequestException as e:
+        app_log.error(f"Snapshot request error: {e}")
+        return jsonify({"status": "error", "message": "Camera unreachable"}), 502
+
+    filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".jpg"
+    save_snapshot(resp.content, filename)
+
+    return jsonify({
+        "status":   "success",
+        "filename": filename,
+        "url":      f"/snapshots/{filename}",
+        "size_kb":  round(len(resp.content) / 1024, 1),
+    })
+
+
+@app.route('/api/snapshots', methods=['GET'])
+def get_snapshots():
+    """
+    List all saved snapshots, newest first.
+    Future: accept ?page= and ?limit= query params for pagination.
+    """
+    return jsonify({
+        "status":    "success",
+        "snapshots": list_snapshots(),
+        "total":     len(list(SNAPSHOT_DIR.glob("*.jpg"))),
+    })
+
+
+# ── Privacy API ───────────────────────────────────────────
 
 @app.route('/api/privacy/status')
 def privacy_status():
@@ -346,6 +443,8 @@ def privacy_off():
     return jsonify({"status": "success", "privacy": False})
 
 
+# ── Stream settings API ───────────────────────────────────
+
 @app.route('/api/stream/settings', methods=['GET'])
 def stream_settings_get():
     settings = get_stream_settings()
@@ -365,7 +464,6 @@ def stream_settings_set():
     bitrate      = data.get("bitrate")
     bitrate_ctrl = data.get("bitrate_ctrl", "VBR")
 
-    # Validate
     if resolution not in VALID_RESOLUTIONS:
         return jsonify({"status": "error", "message": f"Invalid resolution: {resolution}"}), 400
     if fps not in VALID_FPS:
@@ -378,9 +476,10 @@ def stream_settings_set():
     ok = set_stream_settings(resolution, fps, bitrate, bitrate_ctrl)
     if not ok:
         return jsonify({"status": "error", "message": "Failed to apply stream settings"}), 502
-
     return jsonify({"status": "success", "message": "Stream settings saved"})
 
+
+# ── PTZ API ───────────────────────────────────────────────
 
 @app.route('/api/move/start/<direction>')
 def move_start(direction: str):

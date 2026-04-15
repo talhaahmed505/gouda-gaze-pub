@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GOUDA GAZE — Gallery</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div id="app-container">
+        <h1>Gouda Gaze</h1>
+
+        <nav class="page-nav">
+            <a href="/" class="nav-link">&#9654; Live</a>
+            <a href="/gallery" class="nav-link nav-link-active">&#9783; Gallery</a>
+        </nav>
+
+        <div id="gallery-grid">
+            <!-- Populated by JS — gallery feature coming soon -->
+            <p class="gallery-empty" id="gallery-message">Loading snapshots…</p>
+        </div>
+    </div>
+
+    <script>
+        // Gallery scaffolding — wired to the API, ready for full implementation.
+        // When the gallery feature is built out, replace this with the full grid renderer.
+        fetch('/api/snapshots')
+            .then(r => r.json())
+            .then(data => {
+                const msg = document.getElementById('gallery-message');
+                if (data.status !== 'success') {
+                    msg.textContent = 'Could not load snapshots.';
+                    return;
+                }
+                if (data.total === 0) {
+                    msg.textContent = 'No snapshots yet. Take one from the live view.';
+                    return;
+                }
+                // API is working — log for development, full UI comes in next feature
+                console.log(`Gallery: ${data.total} snapshot(s) available`, data.snapshots);
+                msg.textContent = `${data.total} snapshot(s) saved. Full gallery coming soon.`;
+            })
+            .catch(() => {
+                document.getElementById('gallery-message').textContent = 'Could not reach server.';
+            });
+    </script>
+</body>
+</html>

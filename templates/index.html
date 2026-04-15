@@ -8,8 +8,13 @@
 </head>
 <body class="{{ 'privacy-active' if privacy else '' }}">
     <div id="app-container">
-        <h1>Gouda Gaze</h1>
-
+        <div id="top-bar">
+            <h1>Gouda Gaze</h1>
+            <nav id="top-nav">
+                <a href="/gallery" class="top-nav-btn" title="Gallery">&#9783;</a>
+                <button class="top-nav-btn" id="login-btn" title="Login" disabled>&#128100;</button>
+            </nav>
+        </div>
         <div id="main-layout">
 
             <!-- Left: video + zoom -->
@@ -39,7 +44,7 @@
                 </div>
             </div>
 
-            <!-- Right: d-pad + privacy button -->
+            <!-- Right: d-pad + action buttons -->
             <div class="control-panel">
                 <div class="controls-col">
                     <div class="d-pad-grid">
@@ -50,9 +55,16 @@
                         <button class="control-btn" style="grid-area: down"  data-dir="down"  {{ 'disabled' if privacy else '' }}>&#9660;</button>
                     </div>
 
-                    <button class="privacy-btn {{ 'privacy-on' if privacy else '' }}" id="privacy-btn">
-                        <span class="privacy-btn-icon">{% if privacy %}&#128275;{% else %}&#128274;{% endif %}</span>
-                        <span class="privacy-btn-label">{% if privacy %}Resume{% else %}Privacy{% endif %}</span>
+                    <!-- Snapshot button -->
+                    <button class="action-btn snapshot-btn" id="snapshot-btn" {{ 'disabled' if privacy else '' }}>
+                        <span class="action-btn-icon">&#128247;</span>
+                        <span class="action-btn-label" id="snapshot-label">Snapshot</span>
+                    </button>
+
+                    <!-- Privacy button -->
+                    <button class="action-btn privacy-btn {{ 'privacy-on' if privacy else '' }}" id="privacy-btn">
+                        <span class="action-btn-icon">{% if privacy %}&#128275;{% else %}&#128274;{% endif %}</span>
+                        <span class="action-btn-label">{% if privacy %}Resume{% else %}Privacy{% endif %}</span>
                     </button>
                 </div>
             </div>
@@ -94,7 +106,7 @@
                     <div class="settings-field">
                         <label class="settings-label" for="set-bitrate">Bitrate</label>
                         <select id="set-bitrate" class="settings-select">
-                            <!-- Populated dynamically based on resolution + fps -->
+                            <!-- Populated dynamically -->
                         </select>
                     </div>
 
@@ -159,6 +171,34 @@
             });
         }
 
+        // ── Snapshot ──────────────────────────────────────────
+        const snapshotBtn   = document.getElementById('snapshot-btn');
+        const snapshotLabel = document.getElementById('snapshot-label');
+
+        if (snapshotBtn && !snapshotBtn.disabled) {
+            snapshotBtn.addEventListener('click', () => {
+                snapshotBtn.disabled    = true;
+                snapshotLabel.textContent = 'Capturing…';
+
+                fetch('/api/snapshot', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            snapshotLabel.textContent = 'Saved!';
+                        } else {
+                            snapshotLabel.textContent = 'Failed';
+                        }
+                    })
+                    .catch(() => { snapshotLabel.textContent = 'Error'; })
+                    .finally(() => {
+                        setTimeout(() => {
+                            snapshotLabel.textContent = 'Snapshot';
+                            snapshotBtn.disabled      = false;
+                        }, 2000);
+                    });
+            });
+        }
+
         // ── Privacy toggle ───────────────────────────────────
         document.getElementById('privacy-btn').addEventListener('click', () => {
             const isOn     = document.body.classList.contains('privacy-active');
@@ -170,15 +210,6 @@
         });
 
         // ── Stream settings ───────────────────────────────────
-
-        // Pre-calculated bitrate options keyed by resolution then fps.
-        // Formula: snap(w * h * fps / divisor / 1000) to nearest 128 Kbps,
-        // clamped 512–8192. Tiers: Low=÷200, Medium=÷80, High=÷35.
-        // Duplicate values are collapsed so only distinct options appear.
-        // Bitrate options match the camera's own UI dropdowns exactly.
-        // Pattern: 256-step from range_min up to 2048, then 2048-steps to 8192.
-        // range_min is derived proportionally from known reference ranges:
-        //   2560x1440@30=3072, 1920x1080@15=1024, 1920x1080@30=2048
         const BITRATE_TABLE = {
             "2560x1440": {
                 "5":  [512,768,1024,1280,1536,1792,2048,4096,6144,8192],
@@ -214,40 +245,31 @@
             }
         };
 
-        const resEl      = document.getElementById('set-resolution');
-        const fpsEl      = document.getElementById('set-fps');
-        const bitrateEl  = document.getElementById('set-bitrate');
-        const statusEl   = document.getElementById('settings-status');
+        const resEl     = document.getElementById('set-resolution');
+        const fpsEl     = document.getElementById('set-fps');
+        const bitrateEl = document.getElementById('set-bitrate');
+        const statusEl  = document.getElementById('settings-status');
         let settingsLoaded = false;
-        let currentBitrate = null; // the camera's actual current bitrate value
+        let currentBitrate = null;
 
         function updateBitrateOptions(preserveValue) {
-            const res  = resEl.value;
-            const fps  = fpsEl.value;
-            const vals = BITRATE_TABLE[res]?.[fps] ?? [512];
-
+            const vals = BITRATE_TABLE[resEl.value]?.[fpsEl.value] ?? [512];
             bitrateEl.innerHTML = '';
             vals.forEach(v => {
                 const el = document.createElement('option');
-                el.value       = v;
+                el.value = v;
                 el.textContent = `${v} Kbps`;
                 bitrateEl.appendChild(el);
             });
-
             if (preserveValue !== undefined) {
-                // Select the option closest to preserveValue
                 const closest = vals.reduce((a, b) =>
-                    Math.abs(b - preserveValue) < Math.abs(a - preserveValue) ? b : a
-                );
+                    Math.abs(b - preserveValue) < Math.abs(a - preserveValue) ? b : a);
                 bitrateEl.value = closest;
             }
         }
 
-        // Rebuild bitrate options whenever resolution or fps changes
         resEl.addEventListener('change', () => updateBitrateOptions());
         fpsEl.addEventListener('change', () => updateBitrateOptions());
-
-        // Initial population (no camera data yet — just fill the dropdown)
         updateBitrateOptions();
 
         function setStatus(msg, isError = false) {
@@ -261,28 +283,22 @@
 
         function loadSettings() {
             statusEl.textContent = 'Loading…';
-            statusEl.className   = 'settings-status';
             fetch('/api/stream/settings')
                 .then(r => r.json())
                 .then(data => {
                     if (data.status !== 'success') { setStatus('Failed to load', true); return; }
                     const s = data.settings;
-
                     resEl.value = s.resolution;
                     fpsEl.value = String(s.fps);
                     document.querySelector(`input[name="bitrate-ctrl"][value="${s.bitrate_ctrl}"]`).checked = true;
-
-                    // Rebuild bitrate dropdown for this resolution+fps, selecting closest to current
                     currentBitrate = s.bitrate;
                     updateBitrateOptions(s.bitrate);
-
                     statusEl.textContent = '';
                     settingsLoaded = true;
                 })
                 .catch(() => setStatus('Could not reach camera', true));
         }
 
-        // Panel toggle
         const toggleBtn      = document.getElementById('settings-toggle');
         const settingsContent = document.getElementById('settings-content');
         const chevron        = toggleBtn.querySelector('.settings-chevron');
@@ -295,13 +311,11 @@
             if (!isOpen && !settingsLoaded) loadSettings();
         });
 
-        // Save
         document.getElementById('settings-save').addEventListener('click', () => {
             const resolution  = resEl.value;
             const fps         = parseInt(fpsEl.value);
             const bitrate     = parseInt(bitrateEl.value);
             const bitrateCtrl = document.querySelector('input[name="bitrate-ctrl"]:checked')?.value;
-
             if (!bitrateCtrl) { setStatus('Select a bitrate mode', true); return; }
 
             const saveBtn = document.getElementById('settings-save');
@@ -315,12 +329,8 @@
             })
             .then(r => r.json())
             .then(data => {
-                if (data.status === 'success') {
-                    setStatus('Saved');
-                    currentBitrate = bitrate;
-                } else {
-                    setStatus(data.message || 'Save failed', true);
-                }
+                data.status === 'success' ? setStatus('Saved') : setStatus(data.message || 'Save failed', true);
+                if (data.status === 'success') currentBitrate = bitrate;
             })
             .catch(() => setStatus('Network error', true))
             .finally(() => { saveBtn.disabled = false; });
