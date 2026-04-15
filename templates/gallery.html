@@ -8,41 +8,150 @@
 </head>
 <body>
     <div id="app-container">
-        <h1>Gouda Gaze</h1>
-
+        <div id="top-bar">
+            <h1>Gouda Gaze</h1>
+        </div>
         <nav class="page-nav">
             <a href="/" class="nav-link">&#9654; Live</a>
             <a href="/gallery" class="nav-link nav-link-active">&#9783; Gallery</a>
+            <span class="nav-link nav-link-disabled" id="login-btn">&#9750; Log In</span>
         </nav>
 
-        <div id="gallery-grid">
-            <!-- Populated by JS — gallery feature coming soon -->
+        <div id="gallery-header">
+            <span id="gallery-count" class="gallery-count"></span>
+        </div>
+
+        <div id="gallery-grid" class="gallery-empty-state">
             <p class="gallery-empty" id="gallery-message">Loading snapshots…</p>
         </div>
     </div>
 
+    <!-- Lightbox -->
+    <div id="lightbox" class="lightbox">
+        <div id="lightbox-backdrop" class="lightbox-backdrop"></div>
+        <div class="lightbox-inner">
+            <button class="lightbox-nav lightbox-prev" id="lb-prev" aria-label="Previous">&#9664;</button>
+            <div class="lightbox-stage">
+                <img id="lb-img" src="" alt="Snapshot">
+                <div class="lightbox-meta">
+                    <span id="lb-timestamp"></span>
+                    <span id="lb-size"></span>
+                    <span id="lb-counter"></span>
+                </div>
+            </div>
+            <button class="lightbox-nav lightbox-next" id="lb-next" aria-label="Next">&#9654;</button>
+        </div>
+        <button class="lightbox-close" id="lb-close" aria-label="Close">&#10005;</button>
+    </div>
+
     <script>
-        // Gallery scaffolding — wired to the API, ready for full implementation.
-        // When the gallery feature is built out, replace this with the full grid renderer.
+        let snapshots = [];
+        let currentIndex = 0;
+
+        // ── Load snapshots ────────────────────────────────────
         fetch('/api/snapshots')
             .then(r => r.json())
             .then(data => {
-                const msg = document.getElementById('gallery-message');
+                const msg      = document.getElementById('gallery-message');
+                const grid     = document.getElementById('gallery-grid');
+                const countEl  = document.getElementById('gallery-count');
+
                 if (data.status !== 'success') {
                     msg.textContent = 'Could not load snapshots.';
+                    msg.classList.add('gallery-empty-error');
                     return;
                 }
+
                 if (data.total === 0) {
                     msg.textContent = 'No snapshots yet. Take one from the live view.';
                     return;
                 }
-                // API is working — log for development, full UI comes in next feature
-                console.log(`Gallery: ${data.total} snapshot(s) available`, data.snapshots);
-                msg.textContent = `${data.total} snapshot(s) saved. Full gallery coming soon.`;
+
+                snapshots = data.snapshots;
+                countEl.textContent = `${data.total} snapshot${data.total === 1 ? '' : 's'}`;
+
+                // Remove loading message and empty-state layout, build grid
+                grid.innerHTML = '';
+                grid.classList.remove('gallery-empty-state');
+
+                snapshots.forEach((snap, i) => {
+                    const card = document.createElement('div');
+                    card.className = 'gallery-card';
+                    card.dataset.index = i;
+
+                    const img = document.createElement('img');
+                    img.src   = snap.url;
+                    img.alt   = snap.timestamp;
+                    img.loading = 'lazy';
+
+                    const meta = document.createElement('div');
+                    meta.className = 'gallery-card-meta';
+                    meta.textContent = snap.timestamp;
+
+                    card.appendChild(img);
+                    card.appendChild(meta);
+                    card.addEventListener('click', () => openLightbox(i));
+                    grid.appendChild(card);
+                });
             })
             .catch(() => {
                 document.getElementById('gallery-message').textContent = 'Could not reach server.';
+                document.getElementById('gallery-message').classList.add('gallery-empty-error');
             });
+
+        // ── Lightbox ──────────────────────────────────────────
+        const lightbox = document.getElementById('lightbox');
+        const lbImg    = document.getElementById('lb-img');
+        const lbTs     = document.getElementById('lb-timestamp');
+        const lbSize   = document.getElementById('lb-size');
+        const lbCount  = document.getElementById('lb-counter');
+
+        function openLightbox(index) {
+            currentIndex = index;
+            renderLightbox();
+            lightbox.classList.add('lightbox-visible');
+            document.body.classList.add('lightbox-open');
+        }
+
+        function closeLightbox() {
+            lightbox.classList.remove('lightbox-visible');
+            document.body.classList.remove('lightbox-open');
+            lbImg.src = '';
+        }
+
+        function renderLightbox() {
+            const snap = snapshots[currentIndex];
+            lbImg.src        = snap.url;
+            lbTs.textContent  = snap.timestamp;
+            lbSize.textContent = `${snap.size_kb} KB`;
+            lbCount.textContent = `${currentIndex + 1} / ${snapshots.length}`;
+
+            document.getElementById('lb-prev').disabled = currentIndex === 0;
+            document.getElementById('lb-next').disabled = currentIndex === snapshots.length - 1;
+        }
+
+        function prevSnapshot() {
+            if (currentIndex > 0) { currentIndex--; renderLightbox(); }
+        }
+
+        function nextSnapshot() {
+            if (currentIndex < snapshots.length - 1) { currentIndex++; renderLightbox(); }
+        }
+
+        document.getElementById('lb-close').addEventListener('click', closeLightbox);
+        document.getElementById('lb-prev').addEventListener('click', prevSnapshot);
+        document.getElementById('lb-next').addEventListener('click', nextSnapshot);
+
+        // Click backdrop to close
+        document.getElementById('lightbox-backdrop').addEventListener('click', closeLightbox);
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (!lightbox.classList.contains('lightbox-visible')) return;
+            if (e.key === 'Escape')      closeLightbox();
+            if (e.key === 'ArrowLeft')   prevSnapshot();
+            if (e.key === 'ArrowRight')  nextSnapshot();
+        });
     </script>
 </body>
 </html>

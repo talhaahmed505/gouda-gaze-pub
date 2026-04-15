@@ -10,11 +10,12 @@
     <div id="app-container">
         <div id="top-bar">
             <h1>Gouda Gaze</h1>
-            <nav id="top-nav">
-                <a href="/gallery" class="top-nav-btn" title="Gallery">&#9783;</a>
-                <button class="top-nav-btn" id="login-btn" title="Login" disabled>&#128100;</button>
-            </nav>
         </div>
+        <nav class="page-nav">
+            <a href="/" class="nav-link nav-link-active">&#9654; Live</a>
+            <a href="/gallery" class="nav-link">&#9783; Gallery</a>
+            <span class="nav-link nav-link-disabled" id="login-btn">&#9750; Log In</span>
+        </nav>
         <div id="main-layout">
 
             <!-- Left: video + zoom -->
@@ -30,6 +31,11 @@
                             allowfullscreen>
                         </iframe>
                     {% endif %}
+
+                    <!-- Snapshot thumbnail preview — shown briefly after a successful capture -->
+                    <div id="snapshot-preview" class="snapshot-preview" hidden>
+                        <img id="snapshot-preview-img" src="" alt="Snapshot preview">
+                    </div>
                 </div>
 
                 <div class="zoom-bar {{ 'disabled' if privacy else '' }}">
@@ -57,14 +63,36 @@
 
                     <!-- Snapshot button -->
                     <button class="action-btn snapshot-btn" id="snapshot-btn" {{ 'disabled' if privacy else '' }}>
-                        <span class="action-btn-icon">&#128247;</span>
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <!-- Camera body -->
+                            <rect x="1" y="4" width="14" height="10" rx="1.5"/>
+                            <!-- Lens -->
+                            <circle cx="8" cy="9" r="2.5"/>
+                            <!-- Viewfinder bump -->
+                            <path d="M5 4 L5.8 2 h4.4 L11 4"/>
+                        </svg>
                         <span class="action-btn-label" id="snapshot-label">Snapshot</span>
                     </button>
 
                     <!-- Privacy button -->
                     <button class="action-btn privacy-btn {{ 'privacy-on' if privacy else '' }}" id="privacy-btn">
-                        <span class="action-btn-icon">{% if privacy %}&#128275;{% else %}&#128274;{% endif %}</span>
-                        <span class="action-btn-label">{% if privacy %}Resume{% else %}Privacy{% endif %}</span>
+                        {% if privacy %}
+                        <!-- Unlocked padlock — privacy is ON, click to resume -->
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="3" y="7" width="10" height="7" rx="1.5"/>
+                            <path d="M5 7 V4.5 a3 3 0 0 1 6 0"/>
+                            <line x1="8" y1="10" x2="8" y2="12"/>
+                        </svg>
+                        <span class="action-btn-label">Resume</span>
+                        {% else %}
+                        <!-- Locked padlock — privacy is OFF, click to enable -->
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="3" y="7" width="10" height="7" rx="1.5"/>
+                            <path d="M5 7 V4.5 a3 3 0 0 1 6 0 V7"/>
+                            <line x1="8" y1="10" x2="8" y2="12"/>
+                        </svg>
+                        <span class="action-btn-label">Privacy</span>
+                        {% endif %}
                     </button>
                 </div>
             </div>
@@ -74,7 +102,11 @@
         <!-- Stream settings panel -->
         <div id="settings-panel">
             <button id="settings-toggle" class="settings-toggle-btn" aria-expanded="false">
-                <span>&#9881;</span> Stream Settings
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="8" cy="8" r="3"/>
+                    <path d="M8 1 v2 M8 13 v2 M1 8 h2 M13 8 h2 M2.93 2.93 l1.41 1.41 M11.66 11.66 l1.41 1.41 M13.07 2.93 l-1.41 1.41 M4.34 11.66 l-1.41 1.41"/>
+                </svg>
+                Stream Settings
                 <span class="settings-chevron">&#9660;</span>
             </button>
 
@@ -172,12 +204,25 @@
         }
 
         // ── Snapshot ──────────────────────────────────────────
-        const snapshotBtn   = document.getElementById('snapshot-btn');
-        const snapshotLabel = document.getElementById('snapshot-label');
+        const snapshotBtn     = document.getElementById('snapshot-btn');
+        const snapshotLabel   = document.getElementById('snapshot-label');
+        const snapshotPreview = document.getElementById('snapshot-preview');
+        const snapshotPreviewImg = document.getElementById('snapshot-preview-img');
+        let previewTimeout = null;
+
+        function showSnapshotPreview(url) {
+            if (previewTimeout) clearTimeout(previewTimeout);
+            snapshotPreviewImg.src = url;
+            snapshotPreview.hidden = false;
+            previewTimeout = setTimeout(() => {
+                snapshotPreview.hidden = true;
+                snapshotPreviewImg.src = '';
+            }, 3000);
+        }
 
         if (snapshotBtn && !snapshotBtn.disabled) {
             snapshotBtn.addEventListener('click', () => {
-                snapshotBtn.disabled    = true;
+                snapshotBtn.disabled      = true;
                 snapshotLabel.textContent = 'Capturing…';
 
                 fetch('/api/snapshot', { method: 'POST' })
@@ -185,6 +230,7 @@
                     .then(data => {
                         if (data.status === 'success') {
                             snapshotLabel.textContent = 'Saved!';
+                            showSnapshotPreview(data.url);
                         } else {
                             snapshotLabel.textContent = 'Failed';
                         }

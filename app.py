@@ -374,26 +374,31 @@ def serve_snapshot(filename: str):
 @app.route('/api/snapshot', methods=['POST'])
 def take_snapshot():
     if is_privacy_on():
+        http_log.info("POST /api/snapshot blocked — privacy mode active")
         return jsonify({"status": "error", "message": "Privacy mode is active"}), 403
 
     url = f"http://{CAM_IP}/cgi-bin/snapshot.cgi?channel=1&type=0"
     try:
         resp = requests.get(url, auth=HTTPDigestAuth(CAM_USER, CAM_PASS), timeout=10)
         if resp.status_code != 200 or not resp.content:
+            http_log.info(f"POST /api/snapshot failed — camera returned {resp.status_code}")
             app_log.error(f"Snapshot failed: {resp.status_code}")
             return jsonify({"status": "error", "message": "Camera snapshot failed"}), 502
     except requests.RequestException as e:
+        http_log.info(f"POST /api/snapshot error — camera unreachable ({e})")
         app_log.error(f"Snapshot request error: {e}")
         return jsonify({"status": "error", "message": "Camera unreachable"}), 502
 
     filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".jpg"
+    size_kb  = round(len(resp.content) / 1024, 1)
     save_snapshot(resp.content, filename)
+    http_log.info(f"POST /api/snapshot success — {filename} ({size_kb} KB)")
 
     return jsonify({
         "status":   "success",
         "filename": filename,
         "url":      f"/snapshots/{filename}",
-        "size_kb":  round(len(resp.content) / 1024, 1),
+        "size_kb":  size_kb,
     })
 
 
